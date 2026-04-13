@@ -1,0 +1,9 @@
+fastapi==0.115.0
+uvicorn==0.30.6
+jinja2==3.1.4
+requests==2.32.3
+apscheduler==3.10.4
+python-dotenv==1.0.1
+python-multipart==0.0.9
+pycryptodome==3.23.0
+dingtalk-stream==0.24.3

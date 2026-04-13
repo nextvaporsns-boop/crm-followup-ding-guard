@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>线索跟进提醒</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main class="page">
+    <section class="hero">
+      <div>
+        <p class="eyebrow">CRM FOLLOWUP REMINDER</p>
+        <h1>线索跟进达标预览</h1>
+        <p class="subtitle">当前阈值 {{ threshold }} 条。当前按钮只会发送催办通知。</p>
+      </div>
+      <div class="hero-side">
+        <div class="clock">{{ now_text }}</div>
+        <form method="post" action="/run/initial">
+          <button type="submit">刷新并执行首次检查</button>
+        </form>
+        <form method="post" action="/run/urge">
+          <button type="submit" class="secondary">刷新并执行催办</button>
+        </form>
+      </div>
+    </section>
+
+    {% if flash_msg %}
+    <section class="flash {{ 'ok' if flash_ok else 'bad' }}">{{ flash_msg }}</section>
+    {% endif %}
+
+    {% if preview_error %}
+    <section class="flash bad">当前预览拉取失败：{{ preview_error }}</section>
+    {% endif %}
+
+    <section class="panel">
+      <div class="panel-title">今日快照</div>
+      <table>
+        <thead>
+          <tr>
+            <th>姓名</th>
+            <th>USERID</th>
+            <th>跟进数</th>
+            <th>是否提醒</th>
+            <th>催办次数</th>
+            <th>最近状态</th>
+            <th>最近发送</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+          <tr>
+            <td>{{ row.salesperson }}</td>
+            <td>{{ row.user_id }}</td>
+            <td>{{ row.follow_count }}</td>
+            <td>{{ '是' if row.need_remind else '否' }}</td>
+            <td>{{ row.urge_count }}</td>
+            <td>{{ row.last_read_status }}</td>
+            <td>{{ row.last_sent_at }}</td>
+            <td>
+              {% if row.need_remind %}
+              <form method="post" action="/notify/user">
+                <input type="hidden" name="user_id" value="{{ row.user_id }}">
+                <button type="submit" class="mini">发送催办通知</button>
+              </form>
+              {% else %}
+              <span class="muted">已达标</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="8">暂无数据，可先刷新页面重试。</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+
+    <section class="panel">
+      <div class="panel-title">最近日志</div>
+      <table>
+        <thead>
+          <tr>
+            <th>时间</th>
+            <th>动作</th>
+            <th>来源</th>
+            <th>结果</th>
+            <th>人员</th>
+            <th>明细</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for log in logs %}
+          <tr>
+            <td>{{ log.run_at }}</td>
+            <td>{{ log.action }}</td>
+            <td>{{ log.source }}</td>
+            <td>{{ '成功' if log.success else '失败' }}</td>
+            <td>{{ log.salesperson or log.user_id }}</td>
+            <td>{{ log.detail }}</td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="6">暂无日志。</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  </main>
+</body>
+</html>

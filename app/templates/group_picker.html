@@ -1,0 +1,214 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>获取群 openConversationId</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://g.alicdn.com/dingding/open-develop/1.9.0/dingtalk.js"></script>
+</head>
+<body>
+  <main class="page">
+    <section class="hero">
+      <div>
+        <p class="eyebrow">GROUP PICKER</p>
+        <h1>获取群 openConversationId</h1>
+        <p class="subtitle">上面的选群按钮可以先忽略。现在更重要的是确认 Stream 已经抓到目标群事件，并支持手动发送一条群测试消息。</p>
+      </div>
+      <div class="hero-side">
+        <div class="clock">corpId: {{ corp_id }}</div>
+        <button id="pickBtn" type="button">选择目标群</button>
+        <form method="post" action="/group/demo">
+          <button type="submit" class="secondary">发送群测试消息</button>
+        </form>
+      </div>
+    </section>
+
+    {% if flash_msg %}
+    <section class="flash {{ 'ok' if flash_ok else 'bad' }}">{{ flash_msg }}</section>
+    {% endif %}
+
+    <section class="panel">
+      <div class="panel-title">结果</div>
+      <div id="status" class="flash">等待操作</div>
+      <table>
+        <tbody>
+          <tr>
+            <th>chatId</th>
+            <td id="chatIdCell">-</td>
+          </tr>
+          <tr>
+            <th>openConversationId</th>
+            <td id="openConversationIdCell">-</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="panel">
+      <div class="panel-title">最近群事件</div>
+      <table>
+        <thead>
+          <tr>
+            <th>时间</th>
+            <th>事件</th>
+            <th>chatId</th>
+            <th>openConversationId</th>
+            <th>群标题</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in group_events %}
+          <tr>
+            <td>{{ row.event_time }}</td>
+            <td>{{ row.event_type }}</td>
+            <td>{{ row.chat_id }}</td>
+            <td>{{ row.open_conversation_id }}</td>
+            <td>{{ row.title }}</td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="5">暂时还没有群事件。</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  </main>
+
+  <script>
+    const corpId = {{ corp_id | tojson }};
+    const statusEl = document.getElementById("status");
+    const chatIdCell = document.getElementById("chatIdCell");
+    const openConversationIdCell = document.getElementById("openConversationIdCell");
+    const pickBtn = document.getElementById("pickBtn");
+
+    function setStatus(text, ok) {
+      statusEl.textContent = text;
+      statusEl.className = "flash " + (ok ? "ok" : "bad");
+    }
+
+    async function convertChatId(chatId) {
+      const body = new URLSearchParams({ chat_id: chatId });
+      const resp = await fetch("/api/group/convert", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: body.toString(),
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data.ok) {
+        throw new Error(data.error || "转换 openConversationId 失败");
+      }
+      return data.openConversationId;
+    }
+
+    async function ensureDdConfig() {
+      const body = new URLSearchParams({ url: window.location.href.split("#")[0] });
+      const resp = await fetch("/api/jsapi/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: body.toString(),
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data.ok) {
+        throw new Error(data.error || "获取 JSAPI 配置失败");
+      }
+
+      return new Promise((resolve, reject) => {
+        dd.config({
+          beta: false,
+          corpId: data.config.corpId,
+          timeStamp: data.config.timeStamp,
+          nonceStr: data.config.nonceStr,
+          signature: data.config.signature,
+          jsApiList: ["biz.chat.chooseConversationByCorpId", "biz.chat.pickConversation"]
+        });
+
+        dd.ready(function () {
+          resolve();
+        });
+
+        dd.error(function (err) {
+          reject(new Error("dd.config 失败: " + JSON.stringify(err)));
+        });
+      });
+    }
+
+    function pickConversation() {
+      const ua = navigator.userAgent || "";
+      const inDingTalk = /DingTalk/i.test(ua);
+      if (!inDingTalk) {
+        setStatus("当前不是钉钉客户端环境，请在钉钉里打开这个页面。", false);
+        return;
+      }
+
+      if (!window.dd || !dd.biz || !dd.biz.chat) {
+        setStatus("当前环境没有可用的钉钉 JSAPI，请在钉钉微应用环境里打开。", false);
+        return;
+      }
+
+      setStatus("正在拉起群选择器...", true);
+      let finished = false;
+      const timeoutId = window.setTimeout(function () {
+        if (!finished) {
+          setStatus("长时间没有返回结果。现在主链路已经改为 Stream 抓群，不必继续卡在这里。", false);
+        }
+      }, 6000);
+
+      ensureDdConfig().then(function () {
+        const onSuccess = async function (result) {
+          finished = true;
+          window.clearTimeout(timeoutId);
+          const chatId = result.chatId || result.cid || result.conversationId || "";
+          if (!chatId) {
+            setStatus("已返回结果，但没有取到 chatId：" + JSON.stringify(result), false);
+            return;
+          }
+          chatIdCell.textContent = chatId;
+          try {
+            const openConversationId = await convertChatId(chatId);
+            openConversationIdCell.textContent = openConversationId;
+            setStatus("已成功获取 openConversationId。", true);
+          } catch (error) {
+            setStatus("拿到 chatId 了，但转换失败：" + error.message, false);
+          }
+        };
+
+        const onFail = function (err) {
+          finished = true;
+          window.clearTimeout(timeoutId);
+          setStatus("选择群失败：" + JSON.stringify(err), false);
+        };
+
+        if (dd.biz.chat.chooseConversationByCorpId) {
+          dd.biz.chat.chooseConversationByCorpId({
+            corpId: corpId,
+            isConfirm: "true",
+            onSuccess: onSuccess,
+            onFail: onFail,
+          });
+          return;
+        }
+
+        if (dd.biz.chat.pickConversation) {
+          dd.biz.chat.pickConversation({
+            corpId: corpId,
+            isConfirm: "true",
+            onSuccess: onSuccess,
+            onFail: onFail,
+          });
+          return;
+        }
+
+        setStatus("当前钉钉 JSAPI 不支持群选择接口。", false);
+      }).catch(function (err) {
+        finished = true;
+        window.clearTimeout(timeoutId);
+        setStatus(err.message, false);
+      });
+    }
+
+    pickBtn.addEventListener("click", pickConversation);
+  </script>
+</body>
+</html>
