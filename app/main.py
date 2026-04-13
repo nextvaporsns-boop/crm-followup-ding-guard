@@ -11,7 +11,14 @@ from fastapi.templating import Jinja2Templates
 
 from .config import settings
 from .callback_crypto import decrypt_callback, encrypt_success
-from .db import add_group_event, init_db, recent_group_events, recent_run_logs
+from .db import (
+    add_group_event,
+    get_auto_schedule_enabled,
+    init_db,
+    recent_group_events,
+    recent_run_logs,
+    set_auto_schedule_enabled,
+)
 from .dingtalk_client import DingTalkClient
 from .huoban_client import HuobanClient
 from .scheduler_service import SchedulerService
@@ -90,6 +97,8 @@ def group_picker(request: Request):
             "flash_msg": (request.query_params.get("msg") or "").strip(),
             "preview_data": preview_data,
             "preview_error": preview_error,
+            "auto_schedule_enabled": get_auto_schedule_enabled(),
+            "schedule_text": f"{settings.initial_check_hour:02d}:{settings.initial_check_minute:02d} - {settings.urge_end_hour:02d}:00 每小时一次",
         },
     )
 
@@ -189,3 +198,14 @@ def send_group_demo_now():
 @app.get("/group/preview")
 def preview_group_demo_now():
     return RedirectResponse(url="/group-picker?preview=1", status_code=303)
+
+
+@app.post("/scheduler/toggle")
+def toggle_scheduler_enabled(enabled: str = Form(...)):
+    value = str(enabled).strip() == "1"
+    set_auto_schedule_enabled(value)
+    return _redirect_with_msg(
+        True,
+        "已开启定时提醒" if value else "已关闭定时提醒",
+        target="/group-picker",
+    )

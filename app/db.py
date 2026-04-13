@@ -83,10 +83,24 @@ def init_db() -> None:
                 payload_json TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS app_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
             CREATE INDEX IF NOT EXISTS idx_followup_snapshots_date ON followup_snapshots (biz_date);
             CREATE INDEX IF NOT EXISTS idx_run_logs_run_at ON run_logs (run_at);
             CREATE INDEX IF NOT EXISTS idx_group_events_time ON group_events (event_time);
             """
+        )
+        conn.execute(
+            """
+            INSERT INTO app_settings(key, value, updated_at)
+            VALUES ('auto_schedule_enabled', ?, ?)
+            ON CONFLICT(key) DO NOTHING
+            """,
+            ("1" if settings.auto_run_enabled else "0", now_str()),
         )
 
 
@@ -267,3 +281,31 @@ def recent_group_events(limit: int = 50) -> List[Dict[str, Any]]:
             (limit,),
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+def get_app_setting(key: str, default: str = "") -> str:
+    with get_conn() as conn:
+        row = conn.execute("SELECT value FROM app_settings WHERE key = ?", (key,)).fetchone()
+    return str(row["value"]) if row else default
+
+
+def set_app_setting(key: str, value: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO app_settings(key, value, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET
+                value = excluded.value,
+                updated_at = excluded.updated_at
+            """,
+            (key, value, now_str()),
+        )
+
+
+def get_auto_schedule_enabled() -> bool:
+    return get_app_setting("auto_schedule_enabled", "1" if settings.auto_run_enabled else "0") == "1"
+
+
+def set_auto_schedule_enabled(enabled: bool) -> None:
+    set_app_setting("auto_schedule_enabled", "1" if enabled else "0")

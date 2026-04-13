@@ -18,6 +18,13 @@
       <div class="hero-side">
         <div class="clock">corpId: {{ corp_id }}</div>
         <button id="pickBtn" type="button">选择目标群</button>
+        <form method="post" action="/scheduler/toggle">
+          <input type="hidden" name="enabled" value="{{ '0' if auto_schedule_enabled else '1' }}">
+          <button type="submit" class="{{ '' if auto_schedule_enabled else 'secondary' }}">
+            {{ '关闭定时提醒' if auto_schedule_enabled else '开启定时提醒' }}
+          </button>
+        </form>
+        <div class="clock">当前状态：{{ '已开启' if auto_schedule_enabled else '已关闭' }} / {{ schedule_text }}</div>
         <form method="get" action="/group/preview">
           <button type="submit" class="secondary">仅网页预览</button>
         </form>
