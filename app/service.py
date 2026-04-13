@@ -1,4 +1,4 @@
-from datetime import datetime
+﻿from datetime import datetime
 from typing import Dict, List, Tuple
 from zoneinfo import ZoneInfo
 
@@ -43,30 +43,13 @@ class FollowupReminderService:
         add_run_log("refresh_snapshot", source, True, detail=f"rows={len(rows)}")
         return rows
 
-    def resolve_target_user_ids(self) -> List[str]:
-        monitored = set(settings.monitored_user_ids)
-        if not monitored:
-            raise RuntimeError("MONITORED_USER_IDS is empty")
-
-        open_conversation_id = settings.dingtalk_group_open_conversation_id
-        if not open_conversation_id:
-            if not settings.dingtalk_group_chat_id:
-                raise RuntimeError("DINGTALK_GROUP_CHAT_ID or DINGTALK_GROUP_OPEN_CONVERSATION_ID is required")
-            open_conversation_id = self._retry(
-                self.dingtalk.convert_chat_to_open_conversation_id,
-                settings.dingtalk_group_chat_id,
-            )
-
-        member_user_ids = set(self._retry(self.dingtalk.query_group_member_user_ids, open_conversation_id))
-        return sorted(member_user_ids & monitored)
-
     def _build_message(self, row: Dict[str, object], urge: bool) -> str:
         salesperson = str(row.get("salesperson") or row.get("user_id"))
         return (
             "伙伴云信息提醒\n"
             f"@{salesperson}\n"
             "请以上人员立即完成今日的线索跟进内容填报：\n"
-            "链接：https://app.huoban.com/tables/2100000067280983?viewId=1&permissionId=0"
+            "https://app.huoban.com/tables/2100000067280983?viewId=1&permissionId=0"
         )
 
     def _send_notice_bundle(self, row: Dict[str, object], urge: bool) -> Tuple[str, str]:
@@ -76,53 +59,83 @@ class FollowupReminderService:
         open_ding_id = ""
         return task_id, open_ding_id
 
-    def send_group_demo(self, source: str = "web_group_demo") -> Dict[str, object]:
-        rows = self.refresh_today_snapshot(source)
-        recent_events = recent_group_events(20)
-        latest_session_id = ""
-        for event in recent_events:
-            latest_session_id = str(event.get("chat_id") or "").strip()
-            if latest_session_id:
-                break
-        if not latest_session_id:
-            raise ValueError("还没有抓到目标群会话，请先在群里 @机器人 一次")
+    def _latest_session_id(self) -> str:
+        for event in recent_group_events(20):
+            session_id = str(event.get("chat_id") or "").strip()
+            if session_id:
+                return session_id
+        return ""
+
+    def _build_group_targets(self, rows: List[Dict[str, object]]) -> List[Dict[str, object]]:
         targets: List[Dict[str, object]] = []
         for row in rows:
-            user_id = str(row.get("user_id", ""))
+            user_id = str(row.get("user_id", "")).strip()
             follow_count = int(row.get("follow_count", 0))
             if user_id and follow_count < settings.follow_count_threshold:
                 targets.append(row)
+        return targets
 
+    def _build_group_message_payload(self, rows: List[Dict[str, object]]) -> Dict[str, object]:
+        session_id = self._latest_session_id()
+        if not session_id:
+            raise ValueError("还没有抓到目标群会话，请先在群里 @机器人 一次")
+
+        targets = self._build_group_targets(rows)
         if not targets:
-            raise ValueError("当天伙伴云主表里没有需要提醒的未达标人员，未发送测试消息")
+            raise ValueError("当天伙伴云主表里没有需要提醒的未达标人员，未生成消息")
 
         preview_names = "、".join(str(row.get("salesperson") or row.get("user_id")) for row in targets[:8])
         if len(targets) > 8:
             preview_names += f" 等{len(targets)}人"
 
-        at_user_ids = [str(row.get("user_id", "")) for row in targets]
+        at_user_ids = [str(row.get("user_id", "")).strip() for row in targets]
         at_line = " ".join(f"@{user_id}" for user_id in at_user_ids)
-        lines = ["伙伴云信息提醒", at_line]
-        lines.append("请以上人员立即完成今日的线索跟进内容填报：")
-        lines.append("https://app.huoban.com/tables/2100000067280983?viewId=1&permissionId=0")
+        lines = [
+            "伙伴云信息提醒",
+            at_line,
+            "请以上人员立即完成今日的线索跟进内容填报：",
+            "https://app.huoban.com/tables/2100000067280983?viewId=1&permissionId=0",
+        ]
         content = "\n".join(lines)
+        return {
+            "session_id": session_id,
+            "targets": targets,
+            "target_count": len(targets),
+            "preview_names": preview_names,
+            "at_user_ids": at_user_ids,
+            "content": content,
+            "total_rows": len(rows),
+        }
 
-        resp = self._retry(self.dingtalk.send_group_robot_text, content, at_user_ids)
+    def preview_group_demo(self, source: str = "web_group_preview") -> Dict[str, object]:
+        rows = self.refresh_today_snapshot(source)
+        payload = self._build_group_message_payload(rows)
+        add_run_log(
+            "group_preview",
+            source,
+            True,
+            detail=(
+                f"targets={payload['target_count']}, total_rows={payload['total_rows']}, "
+                f"preview={payload['preview_names']}, session_id={payload['session_id']}"
+            ),
+        )
+        return payload
+
+    def send_group_demo(self, source: str = "web_group_demo") -> Dict[str, object]:
+        rows = self.refresh_today_snapshot(source)
+        payload = self._build_group_message_payload(rows)
+        resp = self._retry(self.dingtalk.send_group_robot_text, payload["content"], payload["at_user_ids"])
         add_run_log(
             "group_demo",
             source,
             True,
             detail=(
-                f"targets={len(targets)}, total_rows={len(rows)}, preview={preview_names}, "
-                f"session_id={latest_session_id}, "
+                f"targets={payload['target_count']}, total_rows={payload['total_rows']}, "
+                f"preview={payload['preview_names']}, session_id={payload['session_id']}, "
                 f"errcode={resp.get('errcode', 0)}"
             ),
         )
-        return {
-            "target_count": len(targets),
-            "preview_names": preview_names,
-            "session_id": latest_session_id,
-        }
+        return payload
 
     def run_initial_check(self, source: str = "scheduler_initial") -> Tuple[int, int]:
         rows = self.refresh_today_snapshot(source)

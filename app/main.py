@@ -73,6 +73,13 @@ def index(request: Request):
 
 @app.get("/group-picker")
 def group_picker(request: Request):
+    preview_data = None
+    preview_error = ""
+    if request.query_params.get("preview") == "1":
+        try:
+            preview_data = service.preview_group_demo(source="web_group_preview")
+        except Exception as exc:
+            preview_error = str(exc)
     return templates.TemplateResponse(
         "group_picker.html",
         {
@@ -81,6 +88,8 @@ def group_picker(request: Request):
             "group_events": recent_group_events(20),
             "flash_ok": request.query_params.get("ok") == "1",
             "flash_msg": (request.query_params.get("msg") or "").strip(),
+            "preview_data": preview_data,
+            "preview_error": preview_error,
         },
     )
 
@@ -175,3 +184,8 @@ def send_group_demo_now():
         return _redirect_with_msg(True, f"已发送群测试消息：{result['preview_names']}", target="/group-picker")
     except Exception as exc:
         return _redirect_with_msg(False, f"群测试消息发送失败：{exc}", target="/group-picker")
+
+
+@app.get("/group/preview")
+def preview_group_demo_now():
+    return RedirectResponse(url="/group-picker?preview=1", status_code=303)

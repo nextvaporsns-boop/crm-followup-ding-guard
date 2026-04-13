@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>获取群 openConversationId</title>
+  <title>群提醒测试</title>
   <link rel="stylesheet" href="/static/style.css">
   <script src="https://g.alicdn.com/dingding/open-develop/1.9.0/dingtalk.js"></script>
 </head>
@@ -12,20 +12,53 @@
     <section class="hero">
       <div>
         <p class="eyebrow">GROUP PICKER</p>
-        <h1>获取群 openConversationId</h1>
-        <p class="subtitle">上面的选群按钮可以先忽略。现在更重要的是确认 Stream 已经抓到目标群事件，并支持手动发送一条群测试消息。</p>
+        <h1>群提醒测试台</h1>
+        <p class="subtitle">现在可以用同一套筛选逻辑做两件事：一是只在网页预览，二是直接发到群里。</p>
       </div>
       <div class="hero-side">
         <div class="clock">corpId: {{ corp_id }}</div>
         <button id="pickBtn" type="button">选择目标群</button>
+        <form method="get" action="/group/preview">
+          <button type="submit" class="secondary">仅网页预览</button>
+        </form>
         <form method="post" action="/group/demo">
-          <button type="submit" class="secondary">发送群测试消息</button>
+          <button type="submit" class="secondary">发送到群</button>
         </form>
       </div>
     </section>
 
     {% if flash_msg %}
     <section class="flash {{ 'ok' if flash_ok else 'bad' }}">{{ flash_msg }}</section>
+    {% endif %}
+
+    {% if preview_error %}
+    <section class="flash bad">网页预览失败：{{ preview_error }}</section>
+    {% endif %}
+
+    {% if preview_data %}
+    <section class="panel">
+      <div class="panel-title">网页预览</div>
+      <table>
+        <tbody>
+          <tr>
+            <th>命中人数</th>
+            <td>{{ preview_data.target_count }}</td>
+          </tr>
+          <tr>
+            <th>预览名单</th>
+            <td>{{ preview_data.preview_names }}</td>
+          </tr>
+          <tr>
+            <th>群会话</th>
+            <td>{{ preview_data.session_id }}</td>
+          </tr>
+          <tr>
+            <th>消息正文</th>
+            <td><pre style="white-space: pre-wrap; margin: 0; font: inherit;">{{ preview_data.content }}</pre></td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
     {% endif %}
 
     <section class="panel">
