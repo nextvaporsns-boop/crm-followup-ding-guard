@@ -28,7 +28,7 @@ class Settings:
     dingtalk_ding_robot_code: str = os.getenv("DINGTALK_DING_ROBOT_CODE", "")
     dingtalk_group_webhook: str = os.getenv("DINGTALK_GROUP_WEBHOOK", "")
     dingtalk_group_secret: str = os.getenv("DINGTALK_GROUP_SECRET", "")
-    dingtalk_group_chat_id: str = os.getenv("DINGTALK_GROUP_CHAT_ID", "")
+    dingtalk_group_chat_id: str = os.getenv("DINGTALK_GROUP_CHAT_ID", "cidnz4/chRwUao0vDvDr/G4MQ==")
     dingtalk_group_open_conversation_id: str = os.getenv("DINGTALK_GROUP_OPEN_CONVERSATION_ID", "")
     dingtalk_callback_token: str = os.getenv("DINGTALK_CALLBACK_TOKEN", "")
     dingtalk_callback_aes_key: str = os.getenv("DINGTALK_CALLBACK_AES_KEY", "")

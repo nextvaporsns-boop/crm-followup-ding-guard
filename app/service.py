@@ -61,6 +61,9 @@ class FollowupReminderService:
         return task_id, open_ding_id
 
     def _latest_session_id(self) -> str:
+        fixed_chat_id = str(settings.dingtalk_group_chat_id or "").strip()
+        if fixed_chat_id:
+            return fixed_chat_id
         for event in recent_group_events(20):
             session_id = str(event.get("chat_id") or "").strip()
             if session_id:
