@@ -49,7 +49,8 @@ class FollowupReminderService:
             "伙伴云信息提醒\n"
             f"@{salesperson}\n"
             "请以上人员立即完成今日的线索跟进内容填报：\n"
-            "https://app.huoban.com/tables/2100000067280983?viewId=1&permissionId=0"
+            "https://app.huoban.com/tables/2100000067280983?viewId=1&permissionId=0\n"
+            "以上未填报的将直接影响业务定级的晋升，请大家知悉！"
         )
 
     def _send_notice_bundle(self, row: Dict[str, object], urge: bool) -> Tuple[str, str]:
@@ -95,6 +96,7 @@ class FollowupReminderService:
             at_line,
             "请以上人员立即完成今日的线索跟进内容填报：",
             "https://app.huoban.com/tables/2100000067280983?viewId=1&permissionId=0",
+            "以上未填报的将直接影响业务定级的晋升，请大家知悉！",
         ]
         content = "\n".join(lines)
         return {
