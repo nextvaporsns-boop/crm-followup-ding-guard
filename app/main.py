@@ -1,4 +1,4 @@
-﻿import json
+import json
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote_plus
@@ -198,6 +198,15 @@ def send_group_demo_now():
 @app.get("/group/preview")
 def preview_group_demo_now():
     return RedirectResponse(url="/group-picker?preview=1", status_code=303)
+
+
+@app.get("/api/monthly-summary")
+def monthly_summary_preview():
+    try:
+        result = service.build_monthly_completion_summary(source="web_monthly_summary_api")
+        return JSONResponse({"ok": True, **result})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
 
 
 @app.post("/scheduler/toggle")

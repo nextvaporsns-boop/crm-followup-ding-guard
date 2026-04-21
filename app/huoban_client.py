@@ -49,7 +49,7 @@ class HuobanClient:
             "Content-Type": "application/json",
         }
 
-    def fetch_today_rows(self) -> List[Dict[str, Any]]:
+    def _fetch_rows(self, filter_payload: Dict[str, Any], dedup_by_user: bool) -> List[Dict[str, Any]]:
         offset = 0
         limit = settings.huoban_page_limit
         rows: List[Dict[str, Any]] = []
@@ -57,10 +57,7 @@ class HuobanClient:
         while True:
             payload = {
                 "table_id": settings.huoban_table_id,
-                "filter": {
-                    "field": settings.huoban_field_follow_date,
-                    "query": {"eq": "today"},
-                },
+                "filter": filter_payload,
                 "order": {"field_id": "created_on", "type": "asc"},
                 "limit": limit,
                 "offset": offset,
@@ -68,6 +65,8 @@ class HuobanClient:
             resp = requests.post(self.url, headers=self.headers, json=payload, timeout=20)
             resp.raise_for_status()
             data = resp.json()
+            if int(data.get("code", 0)) != 0:
+                raise RuntimeError(f"huoban item/list failed: {data}")
             items = data.get("data", {}).get("items", [])
 
             for item in items:
@@ -90,7 +89,36 @@ class HuobanClient:
                 break
             offset += limit
 
+        if not dedup_by_user:
+            return sorted(rows, key=lambda row: (str(row.get("follow_date", "")), row["user_id"], row["item_id"]))
+
         dedup: Dict[str, Dict[str, Any]] = {}
         for row in rows:
             dedup[row["user_id"]] = row
         return sorted(dedup.values(), key=lambda row: (int(row.get("follow_count", 0)), row["user_id"]))
+
+    def fetch_today_rows(self) -> List[Dict[str, Any]]:
+        return self._fetch_rows(
+            {
+                "field": settings.huoban_field_follow_date,
+                "query": {"eq": "today"},
+            },
+            dedup_by_user=True,
+        )
+
+    def fetch_rows_between(self, start_date: str, end_date_exclusive: str) -> List[Dict[str, Any]]:
+        return self._fetch_rows(
+            {
+                "and": [
+                    {
+                        "field": settings.huoban_field_follow_date,
+                        "query": {"gte": start_date},
+                    },
+                    {
+                        "field": settings.huoban_field_follow_date,
+                        "query": {"lt": end_date_exclusive},
+                    },
+                ]
+            },
+            dedup_by_user=False,
+        )

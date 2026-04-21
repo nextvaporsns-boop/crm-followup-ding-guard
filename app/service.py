@@ -1,4 +1,5 @@
-﻿from datetime import datetime
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta
 from typing import Dict, List, Tuple
 from zoneinfo import ZoneInfo
 
@@ -16,6 +17,15 @@ from .dingtalk_client import DingTalkClient
 from .huoban_client import HuobanClient
 
 
+@dataclass(frozen=True)
+class MonthlyCompletionStat:
+    salesperson: str
+    user_id: str
+    completed_count: int
+    incomplete_count: int
+    completion_rate: float
+
+
 class FollowupReminderService:
     def __init__(self, dingtalk: DingTalkClient, huoban: HuobanClient) -> None:
         self.dingtalk = dingtalk
@@ -24,6 +34,9 @@ class FollowupReminderService:
 
     def now(self) -> datetime:
         return datetime.now(self.tz)
+
+    def today(self) -> date:
+        return self.now().date()
 
     def biz_date(self) -> str:
         return self.now().strftime("%Y-%m-%d")
@@ -93,12 +106,15 @@ class FollowupReminderService:
             preview_names += f" 等{len(targets)}人"
 
         at_user_ids = [str(row.get("user_id", "")).strip() for row in targets]
-        at_line = " ".join(f"@{user_id}" for user_id in at_user_ids)
+        at_names = [str(row.get("salesperson") or row.get("user_id") or "").strip() for row in targets]
+        at_line = " ".join(f"@{name}" for name in at_names if name)
+        monthly_summary = self.build_monthly_completion_summary(source="group_message_summary", write_log=False)
         lines = [
             "伙伴云信息提醒",
             at_line,
             "请以上人员立即完成今日的线索跟进内容填报：",
             "https://app.huoban.com/tables/2100000067280983?viewId=1&permissionId=0",
+            monthly_summary["text"],
             "以上未填报的将直接影响业务定级的晋升，请大家知悉！",
         ]
         content = "\n".join(lines)
@@ -141,6 +157,95 @@ class FollowupReminderService:
             ),
         )
         return payload
+
+    def build_monthly_completion_summary(
+        self,
+        source: str = "web_monthly_summary",
+        write_log: bool = True,
+    ) -> Dict[str, object]:
+        today = self.today()
+        rolling_start = (today - timedelta(days=31)).isoformat()
+        rolling_end_exclusive = (today + timedelta(days=1)).isoformat()
+        rows = self._retry(self.huoban.fetch_rows_between, rolling_start, rolling_end_exclusive)
+        month_prefix = today.strftime("%Y-%m")
+        monthly_rows = [row for row in rows if str(row.get("follow_date", "")).startswith(month_prefix)]
+        if not monthly_rows:
+            raise ValueError("当月没有可统计的线索跟进数据")
+
+        unique_days = sorted(
+            {
+                str(row.get("follow_date", "")).strip()
+                for row in monthly_rows
+                if str(row.get("follow_date", "")).strip()
+            }
+        )
+        grouped: Dict[str, Dict[str, object]] = {}
+        for row in monthly_rows:
+            salesperson = str(row.get("salesperson") or row.get("user_id") or "").strip()
+            user_id = str(row.get("user_id") or "").strip()
+            key = user_id or salesperson
+            bucket = grouped.setdefault(
+                key,
+                {
+                    "salesperson": salesperson,
+                    "user_id": user_id,
+                    "completed_count": 0,
+                    "incomplete_count": 0,
+                },
+            )
+            if int(row.get("follow_count", 0)) >= settings.follow_count_threshold:
+                bucket["completed_count"] = int(bucket["completed_count"]) + 1
+            else:
+                bucket["incomplete_count"] = int(bucket["incomplete_count"]) + 1
+
+        stats = sorted(
+            [
+                MonthlyCompletionStat(
+                    salesperson=str(data["salesperson"]),
+                    user_id=str(data["user_id"]),
+                    completed_count=int(data["completed_count"]),
+                    incomplete_count=int(data["incomplete_count"]),
+                    completion_rate=(
+                        int(data["completed_count"]) / len(unique_days) if unique_days else 0.0
+                    ),
+                )
+                for data in grouped.values()
+            ],
+            key=lambda item: (-item.completion_rate, -item.completed_count, item.salesperson, item.user_id),
+        )
+        title = f"截至{today.month}月1日-{today.day}日（共计{len(unique_days)}天）线索跟进统计:"
+        text = "\n".join(
+            [title, ""]
+            + [
+                (
+                    f"{item.salesperson}:完成{item.completed_count}次，"
+                    f"未完成{item.incomplete_count}次，完成率{item.completion_rate * 100:.1f}%"
+                )
+                for item in stats
+            ]
+        )
+        if write_log:
+            add_run_log(
+                "monthly_summary",
+                source,
+                True,
+                detail=f"days={len(unique_days)}, users={len(stats)}",
+            )
+        return {
+            "title": title,
+            "text": text,
+            "days": unique_days,
+            "stats": [
+                {
+                    "salesperson": item.salesperson,
+                    "user_id": item.user_id,
+                    "completed_count": item.completed_count,
+                    "incomplete_count": item.incomplete_count,
+                    "completion_rate": round(item.completion_rate, 6),
+                }
+                for item in stats
+            ],
+        }
 
     def run_initial_check(self, source: str = "scheduler_initial") -> Tuple[int, int]:
         rows = self.refresh_today_snapshot(source)
